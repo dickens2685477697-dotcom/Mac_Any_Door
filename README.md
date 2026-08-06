@@ -1,0 +1,69 @@
+# Mac 任意门
+
+基于 macOS 刘海/顶部中央区域的本地内容暂存工具。本轮严格实现需求文档所定义的阶段一：本地暂存闭环；Prompt 创建、浏览器扩展和 ChatGPT 投递按文档顺序留给后续阶段。
+
+## 当前目录结构
+
+    Package.swift
+    Sources/MacAnyDoor/
+      App/       菜单栏应用与启动入口
+      Data/      本地元数据、文件副本与过期清理
+      Import/    文本、URL、图片、文件的拖放/剪贴板导入
+      Models/    PortalItem 与存储范围
+      UI/        无边框刘海面板、卡片与设置
+    Tests/MacAnyDoorTests/
+
+## 阶段一功能
+
+- 菜单栏应用和顶部中央无边框面板；有/无刘海显示器均可使用。
+- 一次性与长期素材两个保存范围，长期区域保留 Prompt 子分区入口。
+- 文本、URL、图片、文件和多文件的拖入；菜单可保存当前剪贴板。
+- 拖出的文本、URL 与文件可供其他应用接收。
+- 文件复制到 Application Support/MacAnyDoor，元数据保存为本地 JSON。
+- 一次性内容默认 24 小时过期，可转为长期素材、删除和手动清空。
+- 长期素材可重命名、删除、排序和拖出。
+
+## 实现方案
+
+### 主要数据模型
+
+- PortalItem：一次性和长期素材的统一对象，保存类型、文本/URL、缓存文件相对路径、文件大小、创建时间、过期时间和手动排序值。
+- StorageScope：temporary 或 permanent。只有 temporary 计算默认过期时间；转长期会清除过期时间，并移动自己的文件副本。
+- SavedPrompt 和 PromptDraft：按需求文档保留为阶段二的独立模型，不将拖入的 Prompt 正文误存为普通素材。
+
+### 刘海窗口
+
+应用采用 accessory 菜单栏形态，并使用无边框、nonactivating、floating 的 NSPanel 锚定在当前屏幕顶部中央。收起时显示小把手；悬停、点击或向小把手拖放内容会展开。无刘海显示器使用相同的顶部中央退化位置；全屏空间使用 fullScreenAuxiliary。
+
+### 拖放与本地存储
+
+导入按文件 URL、网页 URL、图片、文本的顺序识别，支持多个 provider。系统拖放提供的临时文件会先进入短生命周期的暂存目录，再复制到 Application Support/MacAnyDoor/Temporary 或 Permanent；元数据写入 Database/portal-items.json。应用不会长期依赖原文件路径，也不会读取完整剪贴板历史。
+
+拖出时文本提供 plain text，链接提供 URL，图片和文件提供原始文件表示。删除、转长期和启动时过期清理都会同步更新 JSON 与缓存文件。
+
+### 后续 Prompt 与 ChatGPT 方案
+
+阶段二会以 PromptDraft 承接拖入内容：文字为正文，图片/非文本文件为待确认附件；取消草稿时删除未引用附件。确认后才生成 SavedPrompt。阶段四再单独增加 Manifest V3 Chrome 扩展和 Native Messaging 协议，限定在 chatgpt.com 处理用户主动投递的数据，避免让浏览器集成耦合到本地存储层。
+
+### 主要技术风险
+
+- 不同来源应用提供的拖放类型不同，因此对无法读取的 provider 显示明确错误并保留剪贴板导入作为回退。
+- 浏览器页面输入框和上传 DOM 会变化，因此 ChatGPT 投递必须具备扩展状态、页面识别、重试和复制文本回退。
+- 原始文件可在导入后移动或删除，所以应用始终使用自己复制的文件副本。
+
+## 运行与测试
+
+要求 macOS 14+、Xcode 26 / Swift 6：
+
+    swift run MacAnyDoor
+    swift test
+
+运行后点击菜单栏的门图标，或悬停/点击顶部中央小把手展开任意门。将内容拖到“一次性”或“长期素材”区域即可保存。
+
+## 存储与隐私
+
+所有内容只保存在本机。文件会被复制到应用自己的 Application Support 目录，而非长期引用原始路径；应用不自动读取剪贴板历史或其他应用输入。
+
+## 下一阶段
+
+阶段二会实现 Prompt 拖入创建、草稿清理、TXT/Markdown 导入与简化编辑浮层；之后再接入 ChatGPT Chrome 扩展。
