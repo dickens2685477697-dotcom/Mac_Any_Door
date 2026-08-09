@@ -15,6 +15,7 @@ struct MacAnyDoorApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = PortalStore()
+    private lazy var clipboardImporter = ClipboardImporter(store: store)
     private lazy var panelController = NotchPanelController(store: store)
     private lazy var settingsWindowController = SettingsWindowController(store: store)
     private var statusItem: NSStatusItem?
@@ -35,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func saveClipboard() {
-        store.importClipboard()
+        clipboardImporter.importCurrentContents()
         panelController.show()
     }
 

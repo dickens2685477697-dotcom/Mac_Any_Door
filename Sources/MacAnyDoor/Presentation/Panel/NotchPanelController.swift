@@ -4,20 +4,26 @@ import SwiftUI
 
 @MainActor
 final class NotchPanelController: NSObject, ObservableObject {
+    private static let expandedHeightScale: CGFloat = 0.8
+    private static let expansionDuration = 0.48
+    private static let collapseDuration = 0.3
     static let collapsedSize = NSSize(width: 180, height: 34)
-    static let expandedSize = NSSize(width: 720, height: 540)
+    static let expandedSize = NSSize(width: 720, height: 540 * expandedHeightScale)
 
     @Published private(set) var isExpanded = false
 
     private let store: PortalStore
     private let dropImporter: DropImporter
+    private let itemProviderFactory: PortalItemProviderFactory
     private var panel: NotchPanel?
     private var hostingView: TrackingHostingView<PortalRootView>?
     private var collapseWorkItem: DispatchWorkItem?
+    private var isKeepingExpandedForModal = false
 
     init(store: PortalStore) {
         self.store = store
         self.dropImporter = DropImporter(store: store)
+        self.itemProviderFactory = PortalItemProviderFactory(store: store)
         super.init()
     }
 
@@ -29,11 +35,14 @@ final class NotchPanelController: NSObject, ObservableObject {
         let rootView = PortalRootView(
             store: store,
             panelController: self,
-            dropImporter: dropImporter
+            dropImporter: dropImporter,
+            itemProviderFactory: itemProviderFactory
         )
         let hostingView = TrackingHostingView(rootView: rootView)
         hostingView.panelController = self
         hostingView.registerForDraggedTypes(DropImporter.acceptedTypes.map { NSPasteboard.PasteboardType($0.identifier) })
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
         panel.contentView = hostingView
 
         self.panel = panel
@@ -61,13 +70,24 @@ final class NotchPanelController: NSObject, ObservableObject {
         setExpanded(false)
     }
 
+    func beginModalInteraction() {
+        collapseWorkItem?.cancel()
+        isKeepingExpandedForModal = true
+        setExpanded(true)
+    }
+
+    func endModalInteraction() {
+        isKeepingExpandedForModal = false
+        collapse()
+    }
+
     func pointerEntered() {
         collapseWorkItem?.cancel()
         setExpanded(true)
     }
 
     func pointerExited() {
-        guard isExpanded else { return }
+        guard isExpanded, !isKeepingExpandedForModal else { return }
         collapseWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             self?.setExpanded(false)
@@ -105,13 +125,13 @@ final class NotchPanelController: NSObject, ObservableObject {
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                // The expansion starts quickly and settles gently, which reads
-                // closer to a Dynamic Island growing out of the notch than a
-                // generic window resize.
-                context.duration = expanding ? 0.46 : 0.3
+                // Keep the top edge fixed and let the surface grow down from
+                // the notch. The asymmetric timings follow the reference:
+                // expansion has a soft settle, while collapse is snappy.
+                context.duration = expanding ? Self.expansionDuration : Self.collapseDuration
                 context.timingFunction = expanding
-                    ? CAMediaTimingFunction(controlPoints: 0.22, 0.94, 0.36, 1.0)
-                    : CAMediaTimingFunction(name: .easeInEaseOut)
+                    ? CAMediaTimingFunction(controlPoints: 0.18, 0.96, 0.34, 1.0)
+                    : CAMediaTimingFunction(controlPoints: 0.5, 0.0, 0.9, 1.0)
                 panel.animator().setFrame(frame, display: true)
             }
         } else {
@@ -150,7 +170,10 @@ private final class NotchPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
-        hasShadow = true
+        // The native rectangular panel shadow leaves dark square corners
+        // outside the SwiftUI rounded surface. The view supplies its own
+        // rounded shadow instead.
+        hasShadow = false
         hidesOnDeactivate = false
         animationBehavior = .utilityWindow
     }

@@ -49,7 +49,7 @@ private struct SettingsView: View {
                 )
 
                 Button("打开存储目录") {
-                    NSWorkspace.shared.open(store.fileStore.rootURL)
+                    NSWorkspace.shared.open(store.storageRootURL)
                 }
             }
 

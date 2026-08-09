@@ -1,43 +1,5 @@
-import AppKit
 import Combine
 import Foundation
-import UniformTypeIdentifiers
-
-enum TemporaryRetention: Int, CaseIterable, Identifiable {
-    case oneHour = 1
-    case oneDay = 24
-    case manual = 0
-
-    var id: Int { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .oneHour:
-            return "保存 1 小时"
-        case .oneDay:
-            return "保存 24 小时"
-        case .manual:
-            return "手动清除"
-        }
-    }
-
-    func expirationDate(from date: Date = .now) -> Date? {
-        guard rawValue > 0 else { return nil }
-        return date.addingTimeInterval(TimeInterval(rawValue * 60 * 60))
-    }
-}
-
-enum PortalNoticeStyle {
-    case success
-    case error
-    case information
-}
-
-struct PortalNotice: Identifiable {
-    let id = UUID()
-    let text: String
-    let style: PortalNoticeStyle
-}
 
 @MainActor
 final class PortalStore: NSObject, ObservableObject {
@@ -45,27 +7,31 @@ final class PortalStore: NSObject, ObservableObject {
     @Published private(set) var notice: PortalNotice?
     @Published private(set) var temporaryRetention: TemporaryRetention
 
-    let fileStore: PortalFileStore
+    private let repository: any PortalRepository
     private let defaults: UserDefaults
     private let retentionDefaultsKey = "temporaryRetentionHours"
     private var expiryTimer: Timer?
 
-    init(rootURL: URL? = nil, defaults: UserDefaults = .standard) {
+    init(
+        repository: any PortalRepository,
+        defaults: UserDefaults = .standard,
+        schedulesExpiryCleanup: Bool = false
+    ) {
+        self.repository = repository
         self.defaults = defaults
         let savedRetention = defaults.object(forKey: retentionDefaultsKey) as? Int
         self.temporaryRetention = TemporaryRetention(rawValue: savedRetention ?? TemporaryRetention.oneDay.rawValue) ?? .oneDay
-        self.fileStore = PortalFileStore(rootURL: rootURL ?? Self.defaultRootURL())
         super.init()
 
         do {
-            try fileStore.prepareDirectories()
-            items = try fileStore.load()
+            try repository.prepareDirectories()
+            items = try repository.load()
             purgeExpired(showNotice: false)
         } catch {
             setNotice(error.localizedDescription, style: .error)
         }
 
-        if rootURL == nil {
+        if schedulesExpiryCleanup {
             expiryTimer = Timer.scheduledTimer(
                 timeInterval: 15 * 60,
                 target: self,
@@ -74,6 +40,14 @@ final class PortalStore: NSObject, ObservableObject {
                 repeats: true
             )
         }
+    }
+
+    convenience init(rootURL: URL? = nil, defaults: UserDefaults = .standard) {
+        self.init(
+            repository: PortalFileStore(rootURL: rootURL ?? Self.defaultRootURL()),
+            defaults: defaults,
+            schedulesExpiryCleanup: rootURL == nil
+        )
     }
 
     @objc
@@ -101,7 +75,11 @@ final class PortalStore: NSObject, ObservableObject {
     }
 
     var storageUsage: Int64 {
-        fileStore.storageUsage()
+        repository.storageUsage()
+    }
+
+    var storageRootURL: URL {
+        repository.rootURL
     }
 
     func setTemporaryRetention(_ retention: TemporaryRetention) {
@@ -116,13 +94,9 @@ final class PortalStore: NSObject, ObservableObject {
             return
         }
 
-        let item = PortalItem(
-            name: suggestedTextName(for: text),
-            type: .text,
+        let item = PortalItemFactory.text(
+            text,
             scope: scope,
-            textContent: text,
-            createdAt: .now,
-            updatedAt: .now,
             expiresAt: expirationDate(for: scope),
             sortOrder: sortOrder(for: scope)
         )
@@ -135,13 +109,9 @@ final class PortalStore: NSObject, ObservableObject {
             return
         }
 
-        let item = PortalItem(
-            name: url.host(percentEncoded: false) ?? url.absoluteString,
-            type: .url,
+        let item = PortalItemFactory.link(
+            url,
             scope: scope,
-            originalURL: url,
-            createdAt: .now,
-            updatedAt: .now,
             expiresAt: expirationDate(for: scope),
             sortOrder: sortOrder(for: scope)
         )
@@ -151,12 +121,14 @@ final class PortalStore: NSObject, ObservableObject {
     func importFile(at sourceURL: URL, into scope: StorageScope) {
         let id = UUID()
         do {
-            let storedFile = try fileStore.copyFile(at: sourceURL, id: id, scope: scope)
-            let item = makeFileItem(
+            let storedFile = try repository.copyFile(at: sourceURL, id: id, scope: scope)
+            let item = PortalItemFactory.file(
                 id: id,
                 originalName: sourceURL.lastPathComponent,
                 storedFile: storedFile,
-                scope: scope
+                scope: scope,
+                expiresAt: expirationDate(for: scope),
+                sortOrder: sortOrder(for: scope)
             )
             add(item, rollbackFileFor: item, successMessage: "已放入\(scope.displayName)区域。")
         } catch {
@@ -172,45 +144,29 @@ final class PortalStore: NSObject, ObservableObject {
     ) {
         let id = UUID()
         do {
-            let storedFile = try fileStore.saveData(
+            let resolvedTypeIdentifier = PortalItemFactory.resolvedContentTypeIdentifier(
+                supplied: contentTypeIdentifier,
+                originalName: originalName
+            )
+            let storedFile = try repository.saveData(
                 data,
                 originalName: originalName,
-                contentTypeIdentifier: contentTypeIdentifier,
+                contentTypeIdentifier: resolvedTypeIdentifier,
                 id: id,
                 scope: scope
             )
-            let item = makeFileItem(
+            let item = PortalItemFactory.file(
                 id: id,
                 originalName: originalName,
                 storedFile: storedFile,
-                scope: scope
+                scope: scope,
+                expiresAt: expirationDate(for: scope),
+                sortOrder: sortOrder(for: scope)
             )
             add(item, rollbackFileFor: item, successMessage: "已放入\(scope.displayName)区域。")
         } catch {
             setNotice("无法保存 \(originalName)：\(error.localizedDescription)", style: .error)
         }
-    }
-
-    func importClipboard(into scope: StorageScope = .temporary) {
-        let pasteboard = NSPasteboard.general
-
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [:]) as? [NSURL], !urls.isEmpty {
-            urls.map { $0 as URL }.forEach { importURL($0, into: scope) }
-            return
-        }
-
-        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
-            let type = pasteboard.data(forType: .png) == nil ? UTType.tiff.identifier : UTType.png.identifier
-            importFileData(imageData, originalName: "剪贴板图片.\(type == UTType.png.identifier ? "png" : "tiff")", contentTypeIdentifier: type, into: scope)
-            return
-        }
-
-        if let text = pasteboard.string(forType: .string) {
-            importText(text, into: scope)
-            return
-        }
-
-        setNotice("剪贴板中没有可保存的文本、图片或链接。", style: .information)
     }
 
     func promote(_ item: PortalItem) {
@@ -220,7 +176,7 @@ final class PortalStore: NSObject, ObservableObject {
 
         let previousItems = items
         do {
-            try fileStore.moveCachedFile(for: item, to: .permanent)
+            try repository.moveCachedFile(for: item, to: .permanent)
             var promoted = item
             promoted.scope = .permanent
             promoted.expiresAt = nil
@@ -230,7 +186,7 @@ final class PortalStore: NSObject, ObservableObject {
 
             guard persist() else {
                 items = previousItems
-                try? fileStore.moveCachedFile(for: promoted, to: .temporary)
+                try? repository.moveCachedFile(for: promoted, to: .temporary)
                 return
             }
             setNotice("已转为长期素材。", style: .success)
@@ -294,33 +250,7 @@ final class PortalStore: NSObject, ObservableObject {
     }
 
     func fileURL(for item: PortalItem) -> URL? {
-        fileStore.cachedURL(for: item)
-    }
-
-    func dragProvider(for item: PortalItem) -> NSItemProvider {
-        switch item.type {
-        case .text:
-            return NSItemProvider(object: (item.textContent ?? "") as NSString)
-        case .url:
-            if let url = item.originalURL {
-                return NSItemProvider(object: url as NSURL)
-            }
-            return NSItemProvider()
-        case .image, .file:
-            guard let fileURL = fileURL(for: item) else { return NSItemProvider() }
-            let provider = NSItemProvider()
-            provider.suggestedName = item.name
-            provider.registerFileRepresentation(
-                forTypeIdentifier: item.contentTypeIdentifier ?? UTType.data.identifier,
-                fileOptions: [],
-                visibility: .all
-            ) { completion in
-                completion(fileURL, true, nil)
-                return nil
-            }
-            provider.registerObject(fileURL as NSURL, visibility: .all)
-            return provider
-        }
+        repository.cachedURL(for: item)
     }
 
     func dismissNotice() {
@@ -341,7 +271,7 @@ final class PortalStore: NSObject, ObservableObject {
         guard persist() else {
             items = previousItems
             if let rollbackItem {
-                fileStore.deleteCachedFile(for: rollbackItem)
+                repository.deleteCachedFile(for: rollbackItem)
             }
             return
         }
@@ -357,7 +287,7 @@ final class PortalStore: NSObject, ObservableObject {
             items = previousItems
             return
         }
-        targets.forEach(fileStore.deleteCachedFile)
+        targets.forEach(repository.deleteCachedFile)
         if let successMessage {
             setNotice(successMessage, style: .success)
         }
@@ -366,33 +296,12 @@ final class PortalStore: NSObject, ObservableObject {
     @discardableResult
     private func persist() -> Bool {
         do {
-            try fileStore.save(items)
+            try repository.save(items)
             return true
         } catch {
             setNotice("本地保存失败：\(error.localizedDescription)", style: .error)
             return false
         }
-    }
-
-    private func makeFileItem(
-        id: UUID,
-        originalName: String,
-        storedFile: StoredFile,
-        scope: StorageScope
-    ) -> PortalItem {
-        PortalItem(
-            id: id,
-            name: originalName.isEmpty ? "未命名文件" : originalName,
-            type: PortalItemType.from(contentTypeIdentifier: storedFile.contentTypeIdentifier),
-            scope: scope,
-            cachedFilename: storedFile.filename,
-            contentTypeIdentifier: storedFile.contentTypeIdentifier,
-            fileSize: storedFile.fileSize,
-            createdAt: .now,
-            updatedAt: .now,
-            expiresAt: expirationDate(for: scope),
-            sortOrder: sortOrder(for: scope)
-        )
     }
 
     private func expirationDate(for scope: StorageScope) -> Date? {
@@ -402,20 +311,6 @@ final class PortalStore: NSObject, ObservableObject {
     private func sortOrder(for scope: StorageScope) -> Int? {
         guard scope == .permanent else { return nil }
         return (permanentItems.compactMap(\.sortOrder).max() ?? -1) + 1
-    }
-
-    private func suggestedTextName(for text: String) -> String {
-        let firstContentLine = text
-            .split(whereSeparator: \.isNewline)
-            .first
-            .map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        guard !firstContentLine.isEmpty else { return "文本片段" }
-        guard firstContentLine.count <= 40 else {
-            return String(firstContentLine.prefix(40)) + "…"
-        }
-        return firstContentLine
     }
 
     private func setNotice(_ text: String, style: PortalNoticeStyle) {

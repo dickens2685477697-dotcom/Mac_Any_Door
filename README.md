@@ -6,12 +6,15 @@
 
     Package.swift
     Sources/MacAnyDoor/
-      App/       菜单栏应用与启动入口
-      Data/      本地元数据、文件副本与过期清理
-      Import/    文本、URL、图片、文件的拖放/剪贴板导入
-      Models/    PortalItem 与存储范围
-      UI/        无边框刘海面板、卡片与设置
+      App/             启动入口、生命周期与依赖组装
+      Domain/          领域模型和不依赖 UI 的业务规则
+      Application/     应用状态、用例与外部能力协议
+      Infrastructure/  磁盘、拖放、剪贴板和拖出适配器
+      Presentation/    刘海面板、Portal 界面与设置
     Tests/MacAnyDoorTests/
+    docs/ARCHITECTURE.md
+
+详细的依赖边界和功能扩展方式见 [架构说明](docs/ARCHITECTURE.md)。
 
 ## 阶段一功能
 

@@ -1,12 +1,6 @@
 import Foundation
 import UniformTypeIdentifiers
 
-struct StoredFile {
-    let filename: String
-    let fileSize: Int64
-    let contentTypeIdentifier: String?
-}
-
 enum PortalStorageError: LocalizedError {
     case sourceFileUnavailable
     case unreadableData
@@ -23,7 +17,7 @@ enum PortalStorageError: LocalizedError {
 
 /// Owns the on-disk layout. Metadata only keeps relative names so a moved
 /// Application Support directory remains readable after relaunch.
-struct PortalFileStore {
+struct PortalFileStore: PortalRepository {
     let rootURL: URL
 
     init(rootURL: URL) {

@@ -117,6 +117,31 @@ final class PortalStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.permanentItems[0].textContent, "请分析这篇论文")
     }
 
+    func testImportedMarkdownDataKeepsOriginalFilenameAndType() throws {
+        let rootURL = makeTemporaryDirectory()
+        let suiteName = "MacAnyDoorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = PortalStore(rootURL: rootURL, defaults: defaults)
+        let markdown = Data("# 任意门\n\n保留 Markdown 格式。".utf8)
+        store.importFileData(
+            markdown,
+            originalName: "README.md",
+            contentTypeIdentifier: UTType.data.identifier,
+            into: .temporary
+        )
+
+        let item = try XCTUnwrap(store.temporaryItems.first)
+        XCTAssertEqual(item.name, "README.md")
+        XCTAssertEqual(item.contentTypeIdentifier, UTType(filenameExtension: "md")?.identifier)
+        let storedURL = try XCTUnwrap(store.fileURL(for: item))
+        XCTAssertEqual(try Data(contentsOf: storedURL), markdown)
+    }
+
     func testExpiredTemporaryItemsArePurgedOnStartup() throws {
         let rootURL = makeTemporaryDirectory()
         let suiteName = "MacAnyDoorTests.\(UUID().uuidString)"

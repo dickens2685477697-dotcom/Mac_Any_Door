@@ -4,6 +4,8 @@ import SwiftUI
 struct PortalItemCard: View {
     let item: PortalItem
     @ObservedObject var store: PortalStore
+    @ObservedObject var panelController: NotchPanelController
+    let itemProviderFactory: PortalItemProviderFactory
 
     @State private var isShowingRenameSheet = false
     @State private var proposedName = ""
@@ -62,8 +64,7 @@ struct PortalItemCard: View {
                         }
                     }
                     Button("重命名", systemImage: "pencil") {
-                        proposedName = item.name
-                        isShowingRenameSheet = true
+                        presentRenameSheet()
                     }
                     Divider()
                     Button("删除", systemImage: "trash", role: .destructive) {
@@ -91,7 +92,7 @@ struct PortalItemCard: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
         .onDrag {
-            store.dragProvider(for: item)
+            itemProviderFactory.provider(for: item)
         }
         .contextMenu {
             if item.scope == .temporary {
@@ -100,21 +101,28 @@ struct PortalItemCard: View {
                 }
             }
             Button("重命名") {
-                proposedName = item.name
-                isShowingRenameSheet = true
+                presentRenameSheet()
             }
             Divider()
             Button("删除") {
                 store.delete(item)
             }
         }
-        .sheet(isPresented: $isShowingRenameSheet) {
+        .sheet(isPresented: $isShowingRenameSheet, onDismiss: {
+            panelController.endModalInteraction()
+        }) {
             RenameItemSheet(
                 proposedName: $proposedName,
                 originalName: item.name,
                 onSave: { store.rename(item, to: proposedName) }
             )
         }
+    }
+
+    private func presentRenameSheet() {
+        panelController.beginModalInteraction()
+        proposedName = item.name
+        isShowingRenameSheet = true
     }
 
     @ViewBuilder
@@ -155,45 +163,5 @@ struct PortalItemCard: View {
         case .file:
             return .orange
         }
-    }
-}
-
-private struct RenameItemSheet: View {
-    @Binding var proposedName: String
-    let originalName: String
-    let onSave: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("重命名素材")
-                .font(.headline)
-
-            TextField("名称", text: $proposedName)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(save)
-
-            HStack {
-                Spacer()
-                Button("取消") {
-                    dismiss()
-                }
-                Button("保存", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(proposedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 340)
-    }
-
-    private func save() {
-        guard proposedName != originalName else {
-            dismiss()
-            return
-        }
-        onSave()
-        dismiss()
     }
 }
