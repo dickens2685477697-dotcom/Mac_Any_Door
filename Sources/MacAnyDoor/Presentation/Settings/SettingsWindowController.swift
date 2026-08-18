@@ -54,12 +54,15 @@ private struct SettingsView: View {
             }
 
             Section("阶段范围") {
-                Text("本轮已完成本地暂存闭环。Prompt 草稿、浏览器扩展和 ChatGPT 投递将在后续阶段实现。")
+                Text("一次性、长期素材和自定义区域均已支持本地保存。浏览器扩展和 ChatGPT 投递将在后续阶段实现。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .padding()
+        .tint(PortalTokens.Palette.accent)
+        .preferredColorScheme(.dark)
+        .background(PortalTokens.Palette.canvas)
     }
 }

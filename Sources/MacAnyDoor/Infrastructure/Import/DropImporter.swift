@@ -36,6 +36,45 @@ final class DropImporter {
         providers.forEach { importProvider($0, into: scope) }
     }
 
+    /// Bridges an AppKit drag destination back into the same provider-based
+    /// importer used by SwiftUI. The outer panel must sometimes receive the
+    /// drop itself, so copy each pasteboard item into an in-memory provider
+    /// before the asynchronous import begins.
+    func importPasteboard(_ pasteboard: NSPasteboard, into scope: StorageScope) {
+        importProviders(pasteboardProviders(from: pasteboard), into: scope)
+    }
+
+    private func pasteboardProviders(from pasteboard: NSPasteboard) -> [NSItemProvider] {
+        guard let items = pasteboard.pasteboardItems else { return [] }
+
+        return items.compactMap { item in
+            let provider = NSItemProvider()
+            var hasRepresentation = false
+
+            for type in item.types {
+                let data = item.data(forType: type)
+                    ?? item.string(forType: type)?.data(using: .utf8)
+                guard let data else { continue }
+
+                let typeIdentifier = type.rawValue
+                provider.registerDataRepresentation(
+                    forTypeIdentifier: typeIdentifier,
+                    visibility: .all
+                ) { completion in
+                    completion(data, nil)
+                    return nil
+                }
+                hasRepresentation = true
+            }
+
+            if let fileURL = Self.fileURL(from: item) {
+                provider.suggestedName = fileURL.lastPathComponent
+            }
+
+            return hasRepresentation ? provider : nil
+        }
+    }
+
     private func importProvider(_ provider: NSItemProvider, into scope: StorageScope) {
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             importFileURL(from: provider, into: scope)
@@ -395,6 +434,22 @@ final class DropImporter {
             return URL(dataRepresentation: data, relativeTo: nil)
         }
         return nil
+    }
+
+    nonisolated private static func fileURL(from item: NSPasteboardItem) -> URL? {
+        let fileURLType = NSPasteboard.PasteboardType(UTType.fileURL.identifier)
+        if let data = item.data(forType: fileURLType),
+           let url = URL(dataRepresentation: data, relativeTo: nil) {
+            return url
+        }
+
+        guard let string = item.string(forType: fileURLType), !string.isEmpty else {
+            return nil
+        }
+        if let url = URL(string: string), url.isFileURL {
+            return url
+        }
+        return URL(fileURLWithPath: string)
     }
 }
 

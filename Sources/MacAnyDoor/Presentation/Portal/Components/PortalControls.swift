@@ -1,5 +1,9 @@
 import SwiftUI
 
+extension Color {
+    static let portalAccent = PortalTokens.Palette.accent
+}
+
 struct ScopeDropDelegate: DropDelegate {
     @Binding var isTargeted: Bool
     let onTargeted: () -> Void
@@ -26,34 +30,7 @@ struct ScopeDropDelegate: DropDelegate {
     }
 }
 
-struct CountChip: View {
-    let count: Int
-    let label: String
-    let tint: Color
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(tint)
-                .frame(width: 5, height: 5)
-            Text("\(count) \(label)")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.68))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(.white.opacity(0.07), in: Capsule())
-    }
-}
-
-struct GlassTextButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.white.opacity(configuration.isPressed ? 0.56 : 0.78))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(.white.opacity(configuration.isPressed ? 0.08 : 0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
-    }
-}
+// Compatibility names keep the existing portal views source-compatible while
+// the implementation now lives in DesignSystem/PortalControlStyles.swift.
+typealias CountChip = PortalCountChip
+typealias GlassTextButtonStyle = PortalTextButtonStyle

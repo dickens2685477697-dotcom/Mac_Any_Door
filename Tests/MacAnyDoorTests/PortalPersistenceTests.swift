@@ -142,6 +142,47 @@ final class PortalStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: storedURL), markdown)
     }
 
+    func testCustomAreaNameAndFilesPersistSeparatelyFromPermanentMaterials() throws {
+        let rootURL = makeTemporaryDirectory()
+        let suiteName = "MacAnyDoorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = PortalStore(rootURL: rootURL, defaults: defaults)
+        XCTAssertEqual(store.materialAreaName, "素材")
+        XCTAssertEqual(store.customAreaName, "Prompt")
+
+        store.renameMaterialArea(to: "收藏")
+        store.renameCustomArea(to: "研究库")
+        store.importFileData(
+            Data("自定义区域内容".utf8),
+            originalName: "notes.md",
+            contentTypeIdentifier: UTType.data.identifier,
+            into: .custom
+        )
+
+        let item = try XCTUnwrap(store.customItems.first)
+        XCTAssertEqual(item.scope, .custom)
+        let storedURL = try XCTUnwrap(store.fileURL(for: item))
+        XCTAssertEqual(storedURL.deletingLastPathComponent().lastPathComponent, "Custom")
+        XCTAssertEqual(try Data(contentsOf: storedURL), Data("自定义区域内容".utf8))
+
+        store.renameCustomArea(to: "资料库")
+        XCTAssertEqual(store.fileURL(for: item), storedURL)
+
+        let reloadedStore = PortalStore(rootURL: rootURL, defaults: defaults)
+        XCTAssertEqual(reloadedStore.materialAreaName, "收藏")
+        XCTAssertEqual(reloadedStore.customAreaName, "资料库")
+        let reloadedItem = try XCTUnwrap(reloadedStore.customItems.first)
+        XCTAssertEqual(reloadedItem.id, item.id)
+        XCTAssertEqual(reloadedItem.name, item.name)
+        XCTAssertEqual(reloadedItem.scope, .custom)
+        XCTAssertEqual(reloadedItem.cachedFilename, item.cachedFilename)
+    }
+
     func testExpiredTemporaryItemsArePurgedOnStartup() throws {
         let rootURL = makeTemporaryDirectory()
         let suiteName = "MacAnyDoorTests.\(UUID().uuidString)"

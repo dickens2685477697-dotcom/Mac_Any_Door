@@ -51,3 +51,11 @@ App（组装与生命周期）
 - 平台 API 只放在 `Infrastructure` / `Presentation`。
 - View 只负责界面状态和用户意图，不直接写 JSON 或复制文件。
 - 跨功能共享优先通过小协议或值类型，避免全局单例。
+
+## 刘海面板事件边界
+
+刘海面板是 accessory 应用中的 nonactivating `NSPanel`，不能按普通 SwiftUI 主窗口处理 first mouse。关键头部操作由 `TrackingContainerView` 顶层原生按钮负责命中，SwiftUI 负责视觉和辅助功能语义；新建与区域重命名由 `NotchPanelController` 统一呈现原生 attached sheet。
+
+不得在 `mouseDown` 事件监视器中激活或重排面板，也不得使用 `NSButton.isTransparent = true` 创建可点击热区。面板尺寸或头部布局变更时，必须同步更新原生热点和 `PortalControlHitTestingTests`。完整原因、实现约束与排查顺序见 [刘海面板点击与拖拽事件处理故障复盘](PANEL_CLICK_HANDLING.md)。
+
+拖拽命中由 `TrackingContainerView` 统一计算。`NSDraggingInfo.draggingLocation` 是窗口坐标，只能转换为容器局部坐标，禁止再次执行 screen-to-window 转换；只有基于 `NSEvent.mouseLocation` 的刘海附近唤醒逻辑使用屏幕坐标。顶部 tab、长期素材区和自定义区域必须复用同一个目标计算入口，并使用非零窗口原点的测试防止坐标转换假阳性。

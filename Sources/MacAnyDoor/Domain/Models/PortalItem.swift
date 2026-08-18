@@ -7,19 +7,6 @@ enum PortalItemType: String, Codable, CaseIterable {
     case image
     case file
 
-    var symbolName: String {
-        switch self {
-        case .text:
-            return "text.alignleft"
-        case .url:
-            return "link"
-        case .image:
-            return "photo"
-        case .file:
-            return "doc"
-        }
-    }
-
     static func from(contentTypeIdentifier: String?) -> PortalItemType {
         guard
             let contentTypeIdentifier,
@@ -35,6 +22,7 @@ enum PortalItemType: String, Codable, CaseIterable {
 enum StorageScope: String, Codable, CaseIterable {
     case temporary
     case permanent
+    case custom
 
     var displayName: String {
         switch self {
@@ -42,6 +30,8 @@ enum StorageScope: String, Codable, CaseIterable {
             return "一次性"
         case .permanent:
             return "长期素材"
+        case .custom:
+            return "自定义区域"
         }
     }
 }

@@ -32,6 +32,12 @@ struct PortalFileStore: PortalRepository {
         rootURL.appending(path: "Permanent", directoryHint: .isDirectory)
     }
 
+    /// Content for the user-defined area is kept outside the permanent
+    /// material directory so the two collections can evolve independently.
+    var customDirectory: URL {
+        rootURL.appending(path: "Custom", directoryHint: .isDirectory)
+    }
+
     var thumbnailsDirectory: URL {
         rootURL.appending(path: "Thumbnails", directoryHint: .isDirectory)
     }
@@ -50,12 +56,14 @@ struct PortalFileStore: PortalRepository {
             return temporaryDirectory
         case .permanent:
             return permanentDirectory
+        case .custom:
+            return customDirectory
         }
     }
 
     func prepareDirectories() throws {
         let fileManager = FileManager.default
-        for directory in [rootURL, temporaryDirectory, permanentDirectory, thumbnailsDirectory, databaseDirectory] {
+        for directory in [rootURL, temporaryDirectory, permanentDirectory, customDirectory, thumbnailsDirectory, databaseDirectory] {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
     }

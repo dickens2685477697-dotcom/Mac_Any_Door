@@ -1,6 +1,6 @@
 # Mac 任意门
 
-基于 macOS 刘海/顶部中央区域的本地内容暂存工具。本轮严格实现需求文档所定义的阶段一：本地暂存闭环；Prompt 创建、浏览器扩展和 ChatGPT 投递按文档顺序留给后续阶段。
+基于 macOS 刘海/顶部中央区域的本地内容暂存工具。支持一次性内容、长期素材和一个可重命名的自定义区域；浏览器扩展和 ChatGPT 投递按文档顺序留给后续阶段。
 
 ## 当前目录结构
 
@@ -13,16 +13,17 @@
       Presentation/    刘海面板、Portal 界面与设置
     Tests/MacAnyDoorTests/
     docs/ARCHITECTURE.md
+    docs/PANEL_CLICK_HANDLING.md
 
-详细的依赖边界和功能扩展方式见 [架构说明](docs/ARCHITECTURE.md)。
+详细的依赖边界和功能扩展方式见 [架构说明](docs/ARCHITECTURE.md)。刘海面板的 first mouse、原生点击热区及本次故障复盘见 [面板点击事件处理](docs/PANEL_CLICK_HANDLING.md)。
 
 ## 阶段一功能
 
 - 菜单栏应用和顶部中央无边框面板；有/无刘海显示器均可使用。
-- 一次性与长期素材两个保存范围，长期区域保留 Prompt 子分区入口。
+- 一次性与长期素材两个保存范围，长期区域包含一个可重命名的自定义内容区域。
 - 文本、URL、图片、文件和多文件的拖入；菜单可保存当前剪贴板。
 - 拖出的文本、URL 与文件可供其他应用接收。
-- 文件复制到 Application Support/MacAnyDoor，元数据保存为本地 JSON。
+- 文件复制到 Application Support/MacAnyDoor 下的 Temporary、Permanent 或 Custom 目录，元数据保存为本地 JSON。
 - 一次性内容默认 24 小时过期，可转为长期素材、删除和手动清空。
 - 长期素材可重命名、删除、排序和拖出。
 
@@ -31,7 +32,7 @@
 ### 主要数据模型
 
 - PortalItem：一次性和长期素材的统一对象，保存类型、文本/URL、缓存文件相对路径、文件大小、创建时间、过期时间和手动排序值。
-- StorageScope：temporary 或 permanent。只有 temporary 计算默认过期时间；转长期会清除过期时间，并移动自己的文件副本。
+- StorageScope：temporary、permanent 或 custom。只有 temporary 计算默认过期时间；custom 使用独立的 Custom 文件目录，避免与长期素材混放。
 - SavedPrompt 和 PromptDraft：按需求文档保留为阶段二的独立模型，不将拖入的 Prompt 正文误存为普通素材。
 
 ### 刘海窗口
@@ -46,7 +47,7 @@
 
 ### 后续 Prompt 与 ChatGPT 方案
 
-阶段二会以 PromptDraft 承接拖入内容：文字为正文，图片/非文本文件为待确认附件；取消草稿时删除未引用附件。确认后才生成 SavedPrompt。阶段四再单独增加 Manifest V3 Chrome 扩展和 Native Messaging 协议，限定在 chatgpt.com 处理用户主动投递的数据，避免让浏览器集成耦合到本地存储层。
+后续如需增加 Prompt 草稿、浏览器扩展和 ChatGPT 投递，应继续与当前自定义区域的普通内容存储解耦。阶段四再单独增加 Manifest V3 Chrome 扩展和 Native Messaging 协议，限定在 chatgpt.com 处理用户主动投递的数据，避免让浏览器集成耦合到本地存储层。
 
 ### 主要技术风险
 
@@ -69,4 +70,4 @@
 
 ## 下一阶段
 
-阶段二会实现 Prompt 拖入创建、草稿清理、TXT/Markdown 导入与简化编辑浮层；之后再接入 ChatGPT Chrome 扩展。
+后续阶段再接入更专门的 Prompt 草稿、浏览器扩展和 ChatGPT Chrome 扩展能力。

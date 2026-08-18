@@ -25,10 +25,44 @@ enum PortalSection: String, CaseIterable, Identifiable {
         }
     }
 
-    var symbolName: String {
+}
+
+/// The concrete destinations used by the AppKit drag bridge. SwiftUI's
+/// `onDrop` can describe these zones declaratively, but the outer panel also
+/// needs to know where a drag is hovering when it owns the drag session.
+enum PortalDropDestination: Equatable {
+    case temporaryTab
+    case permanentTab
+    case temporaryArea
+    case permanentArea
+    case customArea
+
+    var section: PortalSection {
         switch self {
-        case .temporary: return "clock.arrow.circlepath"
-        case .permanent: return "archivebox"
+        case .temporaryTab, .temporaryArea:
+            return .temporary
+        case .permanentTab, .permanentArea, .customArea:
+            return .permanent
+        }
+    }
+
+    var storageScope: StorageScope {
+        switch self {
+        case .temporaryTab, .temporaryArea:
+            return .temporary
+        case .permanentTab, .permanentArea:
+            return .permanent
+        case .customArea:
+            return .custom
+        }
+    }
+
+    var isTab: Bool {
+        switch self {
+        case .temporaryTab, .permanentTab:
+            return true
+        case .temporaryArea, .permanentArea, .customArea:
+            return false
         }
     }
 }

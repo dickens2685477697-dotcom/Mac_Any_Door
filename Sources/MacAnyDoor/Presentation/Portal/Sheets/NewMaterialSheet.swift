@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 private enum NewMaterialKind: String, CaseIterable, Identifiable {
@@ -15,16 +16,30 @@ private enum NewMaterialKind: String, CaseIterable, Identifiable {
 }
 
 struct NewMaterialSheet: View {
+    private static let logger = Logger(subsystem: "MacAnyDoor", category: "NewMaterial")
     @ObservedObject var store: PortalStore
+    let scope: StorageScope
+    let onDismiss: () -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @State private var kind: NewMaterialKind = .text
     @State private var value = ""
+    @FocusState private var isInputFocused: Bool
+
+    init(
+        store: PortalStore,
+        scope: StorageScope = .permanent,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.store = store
+        self.scope = scope
+        self.onDismiss = onDismiss
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("新建长期素材")
-                .font(.headline)
+            Text("新建\(scope == .custom ? store.customAreaName : store.materialAreaName)")
+                .font(PortalTokens.Typography.display)
+                .foregroundStyle(PortalTokens.Palette.primaryText)
 
             Picker("类型", selection: $kind) {
                 ForEach(NewMaterialKind.allCases) { kind in
@@ -36,40 +51,66 @@ struct NewMaterialSheet: View {
             if kind == .text {
                 TextEditor(text: $value)
                     .font(.body)
+                    .focused($isInputFocused)
                     .frame(height: 130)
+                    .scrollContentBackground(.hidden)
+                    .padding(PortalTokens.Spacing.small)
+                    .background(PortalTokens.Palette.glass)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(.secondary.opacity(0.25), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: PortalTokens.Radius.small, style: .continuous)
+                            .stroke(PortalTokens.Palette.glassStrokeStrong, lineWidth: 1)
                     )
             } else {
                 TextField("https://example.com", text: $value)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .focused($isInputFocused)
+                    .padding(PortalTokens.Spacing.small)
+                    .portalGlass(cornerRadius: PortalTokens.Radius.small)
             }
 
             HStack {
                 Spacer()
-                Button("取消") { dismiss() }
+                Button("取消", action: onDismiss)
+                    .buttonStyle(PortalTextButtonStyle())
+                    .keyboardShortcut(.cancelAction)
                 Button("保存", action: save)
+                    .buttonStyle(.borderedProminent)
+                    .tint(PortalTokens.Palette.accent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(20)
         .frame(width: 400)
+        .background(PortalTokens.Palette.canvas)
+        .preferredColorScheme(.dark)
+        .tint(PortalTokens.Palette.accent)
+        .task {
+            await Task.yield()
+            isInputFocused = true
+        }
+        .onChange(of: kind) {
+            isInputFocused = false
+            Task { @MainActor in
+                await Task.yield()
+                isInputFocused = true
+            }
+        }
     }
 
     private func save() {
+        Self.logger.notice("Save requested for material kind \(kind.rawValue, privacy: .public)")
         switch kind {
         case .text:
-            store.importText(value, into: .permanent)
+            store.importText(value, into: scope)
         case .link:
             let normalized = value.contains("://") ? value : "https://\(value)"
             guard let url = URL(string: normalized), url.host != nil else {
                 store.reportImportFailure("请输入有效链接。")
                 return
             }
-            store.importURL(url, into: .permanent)
+            store.importURL(url, into: scope)
         }
-        dismiss()
+        onDismiss()
     }
 }

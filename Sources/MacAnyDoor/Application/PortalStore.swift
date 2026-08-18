@@ -6,10 +6,14 @@ final class PortalStore: NSObject, ObservableObject {
     @Published private(set) var items: [PortalItem] = []
     @Published private(set) var notice: PortalNotice?
     @Published private(set) var temporaryRetention: TemporaryRetention
+    @Published private(set) var materialAreaName: String
+    @Published private(set) var customAreaName: String
 
     private let repository: any PortalRepository
     private let defaults: UserDefaults
     private let retentionDefaultsKey = "temporaryRetentionHours"
+    private let materialAreaNameDefaultsKey = "materialAreaName"
+    private let customAreaNameDefaultsKey = "customAreaName"
     private var expiryTimer: Timer?
 
     init(
@@ -21,6 +25,8 @@ final class PortalStore: NSObject, ObservableObject {
         self.defaults = defaults
         let savedRetention = defaults.object(forKey: retentionDefaultsKey) as? Int
         self.temporaryRetention = TemporaryRetention(rawValue: savedRetention ?? TemporaryRetention.oneDay.rawValue) ?? .oneDay
+        self.materialAreaName = Self.validAreaName(defaults.string(forKey: materialAreaNameDefaultsKey), fallback: "素材")
+        self.customAreaName = Self.validAreaName(defaults.string(forKey: customAreaNameDefaultsKey), fallback: "Prompt")
         super.init()
 
         do {
@@ -74,6 +80,23 @@ final class PortalStore: NSObject, ObservableObject {
             }
     }
 
+    var customItems: [PortalItem] {
+        items
+            .filter { $0.scope == .custom }
+            .sorted {
+                let leftOrder = $0.sortOrder ?? Int.max
+                let rightOrder = $1.sortOrder ?? Int.max
+                if leftOrder == rightOrder {
+                    return $0.createdAt > $1.createdAt
+                }
+                return leftOrder < rightOrder
+            }
+    }
+
+    var totalItemCount: Int {
+        items.count
+    }
+
     var storageUsage: Int64 {
         repository.storageUsage()
     }
@@ -88,6 +111,24 @@ final class PortalStore: NSObject, ObservableObject {
         setNotice("一次性内容默认策略已更新为\(retention.displayName)。", style: .success)
     }
 
+    func renameMaterialArea(to name: String) {
+        renameArea(
+            name,
+            currentName: materialAreaName,
+            defaultsKey: materialAreaNameDefaultsKey,
+            update: { self.materialAreaName = $0 }
+        )
+    }
+
+    func renameCustomArea(to name: String) {
+        renameArea(
+            name,
+            currentName: customAreaName,
+            defaultsKey: customAreaNameDefaultsKey,
+            update: { self.customAreaName = $0 }
+        )
+    }
+
     func importText(_ text: String, into scope: StorageScope) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             setNotice("不能保存空文本。", style: .error)
@@ -100,7 +141,7 @@ final class PortalStore: NSObject, ObservableObject {
             expiresAt: expirationDate(for: scope),
             sortOrder: sortOrder(for: scope)
         )
-        add(item, successMessage: "已放入\(scope.displayName)区域。")
+        add(item, successMessage: "已放入\(displayName(for: scope))区域。")
     }
 
     func importURL(_ url: URL, into scope: StorageScope) {
@@ -115,7 +156,7 @@ final class PortalStore: NSObject, ObservableObject {
             expiresAt: expirationDate(for: scope),
             sortOrder: sortOrder(for: scope)
         )
-        add(item, successMessage: "链接已放入\(scope.displayName)区域。")
+        add(item, successMessage: "链接已放入\(displayName(for: scope))区域。")
     }
 
     func importFile(at sourceURL: URL, into scope: StorageScope) {
@@ -130,7 +171,7 @@ final class PortalStore: NSObject, ObservableObject {
                 expiresAt: expirationDate(for: scope),
                 sortOrder: sortOrder(for: scope)
             )
-            add(item, rollbackFileFor: item, successMessage: "已放入\(scope.displayName)区域。")
+            add(item, rollbackFileFor: item, successMessage: "已放入\(displayName(for: scope))区域。")
         } catch {
             setNotice("无法保存 \(sourceURL.lastPathComponent)：\(error.localizedDescription)", style: .error)
         }
@@ -163,7 +204,7 @@ final class PortalStore: NSObject, ObservableObject {
                 expiresAt: expirationDate(for: scope),
                 sortOrder: sortOrder(for: scope)
             )
-            add(item, rollbackFileFor: item, successMessage: "已放入\(scope.displayName)区域。")
+            add(item, rollbackFileFor: item, successMessage: "已放入\(displayName(for: scope))区域。")
         } catch {
             setNotice("无法保存 \(originalName)：\(error.localizedDescription)", style: .error)
         }
@@ -249,6 +290,30 @@ final class PortalStore: NSObject, ObservableObject {
         }
     }
 
+    func moveCustomItems(from sourceOffsets: IndexSet, to destination: Int) {
+        var ordered = customItems
+        let selectedItems = sourceOffsets.map { ordered[$0] }
+        for index in sourceOffsets.sorted(by: >) {
+            ordered.remove(at: index)
+        }
+
+        let removedBeforeDestination = sourceOffsets.filter { $0 < destination }.count
+        let insertionIndex = min(max(destination - removedBeforeDestination, 0), ordered.count)
+        ordered.insert(contentsOf: selectedItems, at: insertionIndex)
+
+        let previousItems = items
+        for (index, item) in ordered.enumerated() {
+            guard let itemIndex = items.firstIndex(where: { $0.id == item.id }) else { continue }
+            items[itemIndex].sortOrder = index
+            items[itemIndex].updatedAt = .now
+        }
+
+        guard persist() else {
+            items = previousItems
+            return
+        }
+    }
+
     func fileURL(for item: PortalItem) -> URL? {
         repository.cachedURL(for: item)
     }
@@ -309,8 +374,41 @@ final class PortalStore: NSObject, ObservableObject {
     }
 
     private func sortOrder(for scope: StorageScope) -> Int? {
-        guard scope == .permanent else { return nil }
-        return (permanentItems.compactMap(\.sortOrder).max() ?? -1) + 1
+        let scopedItems: [PortalItem]
+        switch scope {
+        case .temporary:
+            return nil
+        case .permanent:
+            scopedItems = permanentItems
+        case .custom:
+            scopedItems = customItems
+        }
+        return (scopedItems.compactMap(\.sortOrder).max() ?? -1) + 1
+    }
+
+    private func displayName(for scope: StorageScope) -> String {
+        switch scope {
+        case .temporary:
+            return scope.displayName
+        case .permanent:
+            return materialAreaName
+        case .custom:
+            return customAreaName
+        }
+    }
+
+    private func renameArea(
+        _ name: String,
+        currentName: String,
+        defaultsKey: String,
+        update: (String) -> Void
+    ) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, trimmedName != currentName else { return }
+
+        update(trimmedName)
+        defaults.set(trimmedName, forKey: defaultsKey)
+        setNotice("已重命名区域。", style: .success)
     }
 
     private func setNotice(_ text: String, style: PortalNoticeStyle) {
@@ -326,5 +424,10 @@ final class PortalStore: NSObject, ObservableObject {
             create: true
         )) ?? fileManager.temporaryDirectory
         return applicationSupport.appending(path: "MacAnyDoor", directoryHint: .isDirectory)
+    }
+
+    private static func validAreaName(_ value: String?, fallback: String) -> String {
+        let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedValue.isEmpty ? fallback : trimmedValue
     }
 }

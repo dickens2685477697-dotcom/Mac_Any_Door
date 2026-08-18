@@ -5,21 +5,26 @@ struct NoticeBanner: View {
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbolName)
+        HStack(spacing: PortalTokens.Spacing.small) {
+            PortalIcon(glyph: glyph, size: PortalTokens.Icon.small, tint: tint, showsPlate: false)
+
             Text(notice.text)
-                .font(.system(size: 10, weight: .medium))
+                .font(PortalTokens.Typography.caption)
                 .lineLimit(2)
-            Spacer(minLength: 6)
-            Button(action: dismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-            }
-            .buttonStyle(.plain)
+
+            Spacer(minLength: PortalTokens.Spacing.small)
+
+            PortalIconButton(
+                glyph: .close,
+                size: PortalTokens.Icon.tiny,
+                tint: tint,
+                label: "关闭通知",
+                action: dismiss
+            )
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, PortalTokens.Spacing.medium)
+        .padding(.vertical, PortalTokens.Spacing.small)
         .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -29,17 +34,17 @@ struct NoticeBanner: View {
 
     private var tint: Color {
         switch notice.style {
-        case .success: return .mint
-        case .error: return .red
-        case .information: return .cyan
+        case .success: return PortalTokens.Palette.success
+        case .error: return PortalTokens.Palette.error
+        case .information: return PortalTokens.Palette.information
         }
     }
 
-    private var symbolName: String {
+    private var glyph: PortalGlyph {
         switch notice.style {
-        case .success: return "checkmark.circle.fill"
-        case .error: return "exclamationmark.triangle.fill"
-        case .information: return "info.circle.fill"
+        case .success: return .success
+        case .error: return .error
+        case .information: return .information
         }
     }
 }
